@@ -12,6 +12,8 @@ from datetime import datetime, timezone, tzinfo
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from general_standard_functions.i18n import _
+
 __all__ = [
     "DEFAULT_TIMEZONE",
     "EMPTY_PLACEHOLDER",
@@ -125,7 +127,7 @@ def parse_local_datetime(text: str, tz: tzinfo = DEFAULT_TIMEZONE) -> datetime:
     try:
         parsed = datetime.fromisoformat((text or "").strip())
     except ValueError as exc:
-        raise InvalidLocalDatetimeError("Vul een geldige datum en tijd in.") from exc
+        raise InvalidLocalDatetimeError(_("Vul een geldige datum en tijd in.")) from exc
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=tz)
     return parsed.astimezone(timezone.utc)

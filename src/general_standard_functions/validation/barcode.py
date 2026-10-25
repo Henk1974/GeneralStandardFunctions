@@ -7,6 +7,8 @@ verschillende waarden wordt opgeslagen.
 
 from __future__ import annotations
 
+from general_standard_functions.i18n import _
+
 __all__ = ["InvalidBarcodeError", "normalize_barcode"]
 
 
@@ -36,7 +38,7 @@ def normalize_barcode(barcode: str) -> str:
     """
     stripped = (barcode or "").strip()
     if not stripped:
-        raise InvalidBarcodeError("Barcode mag niet leeg zijn.")
+        raise InvalidBarcodeError(_("Barcode mag niet leeg zijn."))
     if not stripped.isdigit():
-        raise InvalidBarcodeError(f"Barcode mag alleen cijfers bevatten, kreeg: {barcode!r}")
+        raise InvalidBarcodeError(_("Barcode mag alleen cijfers bevatten, kreeg: %(barcode)r", barcode=barcode))
     return stripped

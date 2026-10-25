@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from general_standard_functions.i18n import _
+
 __all__ = [
     "COMMON_WEAK_PASSWORDS",
     "PasswordPolicy",
@@ -95,18 +97,18 @@ def validate_password(password: str, policy: PasswordPolicy = DEFAULT_POLICY) ->
         InvalidPasswordError: Wachtwoord moet minimaal 12 tekens lang zijn.
     """
     if password is None or len(password) < policy.min_length:
-        raise InvalidPasswordError(f"Wachtwoord moet minimaal {policy.min_length} tekens lang zijn.")
+        raise InvalidPasswordError(_("Wachtwoord moet minimaal %(n)s tekens lang zijn.", n=policy.min_length))
 
     if password.lower() in policy.weak_passwords:
         raise InvalidPasswordError(
-            "Dit wachtwoord is te makkelijk te raden. Kies iets unieks, bijvoorbeeld een korte zin."
+            _("Dit wachtwoord is te makkelijk te raden. Kies iets unieks, bijvoorbeeld een korte zin.")
         )
 
     if policy.require_uppercase and not _UPPERCASE_RE.search(password):
-        raise InvalidPasswordError("Wachtwoord moet minstens één hoofdletter bevatten.")
+        raise InvalidPasswordError(_("Wachtwoord moet minstens één hoofdletter bevatten."))
 
     if policy.require_digit and not _DIGIT_RE.search(password):
-        raise InvalidPasswordError("Wachtwoord moet minstens één cijfer bevatten.")
+        raise InvalidPasswordError(_("Wachtwoord moet minstens één cijfer bevatten."))
 
     if policy.require_special and not _SPECIAL_RE.search(password):
-        raise InvalidPasswordError("Wachtwoord moet minstens één speciaal teken bevatten (bijv. ! ? # @ % -).")
+        raise InvalidPasswordError(_("Wachtwoord moet minstens één speciaal teken bevatten (bijv. ! ? # @ % -)."))

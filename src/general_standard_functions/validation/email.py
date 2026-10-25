@@ -12,6 +12,8 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
+from general_standard_functions.i18n import _
+
 __all__ = [
     "MAX_EMAIL_LENGTH",
     "InvalidEmailError",
@@ -50,9 +52,9 @@ def normalize_email_format(email: str) -> str:
     """
     stripped = (email or "").strip().lower()
     if not stripped:
-        raise InvalidEmailError("E-mailadres is verplicht.")
+        raise InvalidEmailError(_("E-mailadres is verplicht."))
     if len(stripped) > MAX_EMAIL_LENGTH or not _EMAIL_RE.match(stripped):
-        raise InvalidEmailError(f"{email.strip()!r} is geen geldig e-mailadres.")
+        raise InvalidEmailError(_("%(email)r is geen geldig e-mailadres.", email=email.strip()))
     return stripped
 
 
@@ -80,6 +82,6 @@ def normalize_email(email: str, allowed_domains: Iterable[str], rejection_hint: 
     clean = normalize_email_format(email)
     domain = clean.rsplit("@", 1)[-1]
     if domain not in {allowed.lower() for allowed in allowed_domains}:
-        message = f"E-mailadressen van domein {domain!r} worden niet ondersteund."
+        message = _("E-mailadressen van domein %(domain)r worden niet ondersteund.", domain=domain)
         raise InvalidEmailError(f"{message} {rejection_hint}".strip())
     return clean

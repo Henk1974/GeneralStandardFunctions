@@ -12,6 +12,8 @@ import uuid
 from collections.abc import Collection
 from typing import Optional, Protocol
 
+from general_standard_functions.i18n import _
+
 __all__ = ["DEFAULT_IMAGE_EXTENSIONS", "FileStorage", "InvalidImageError", "ImageUploadService"]
 
 DEFAULT_IMAGE_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp"})
@@ -68,7 +70,8 @@ class ImageUploadService:
         extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         if extension not in self._allowed_extensions:
             raise InvalidImageError(
-                "Afbeelding moet een van deze typen zijn: " + ", ".join(sorted(self._allowed_extensions))
+                _("Afbeelding moet een van deze typen zijn: %(types)s",
+                  types=", ".join(sorted(self._allowed_extensions)))
             )
 
         stored_name = f"{uuid.uuid4().hex}.{extension}"

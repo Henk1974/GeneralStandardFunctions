@@ -12,7 +12,7 @@ In `requirements.txt` van een project (vaste versie, zodat een update van
 dit pakket nooit ongemerkt een app verandert):
 
 ```text
-general-standard-functions[web,postgres,storage] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v0.1.0
+general-standard-functions[web,postgres,storage] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v0.2.0
 ```
 
 | Extra | Nodig voor | Installeert |
@@ -41,6 +41,7 @@ Tijdens het ontwikkelen aan dit pakket naast een app:
 |---|---|
 | [`db.migrations`](#dbmigrations) | Migratie-runner: voer genummerde ``.sql``-bestanden één keer uit, op volgorde. |
 | [`db.request_scope`](#dbrequest_scope) | Eén databaseverbinding per webverzoek, met een transactie per blok. |
+| [`i18n`](#i18n) | Vertaalhaak voor de meldingen van dit pakket (en van een app zelf). |
 | [`localtime`](#localtime) | Tijdstippen opslaan in UTC en tonen in lokale (standaard Nederlandse) tijd. |
 | [`mail.smtp`](#mailsmtp) | E-mail versturen via SMTP, alleen met de standaardbibliotheek. |
 | [`security.captcha`](#securitycaptcha) | Eenvoudige robotcontrole voor openbare formulieren, zonder externe dienst. |
@@ -1075,6 +1076,130 @@ Bij 500 vangt dit ook elke onverwachte uitzondering op (zolang
 - `status`: De HTTP-status, standaard 500.
 
 ## Losse modules
+
+### `i18n`
+
+Vertaalhaak voor de meldingen van dit pakket (en van een app zelf).
+
+De meldingen in dit pakket zijn Nederlands; dat is de brontekst. Zonder
+verdere instellingen komt die tekst ongewijzigd terug, dus een app in één
+taal hoeft niets te doen. Een meertalige app registreert één keer een
+vertaalfunctie met `set_translator`, bijvoorbeeld de `gettext` en
+`ngettext` van Flask-Babel; vanaf dan gaat elke melding daar doorheen.
+
+Variabele delen staan als `%(naam)s` in de brontekst en worden pas ná het
+vertalen ingevuld, zodat een vertaling ze op een andere plek in de zin kan
+zetten. Een extractietool als `pybabel extract` vindt de teksten via de
+namen `_`, `ngettext` en `N_`.
+
+#### `Translator`
+
+Constante, waarde: `collections.abc.Callable[[str], str]`
+
+#### `PluralTranslator`
+
+Constante, waarde: `collections.abc.Callable[[str, str, int], str]`
+
+#### `set_translator(translator: Optional[Translator], plural_translator: Optional[PluralTranslator] = None) -> None`
+
+Registreer de functies die een brontekst vertalen.
+
+**Argumenten:**
+
+- `translator`: Krijgt de brontekst (met `%(naam)s` er nog in) en geeft de vertaling terug. `None` zet het vertalen weer uit.
+- `plural_translator`: Krijgt enkelvoud, meervoud en aantal en geeft de juiste vertaalde vorm terug. Zonder deze functie kiest `ngettext` zelf tussen de Nederlandse vormen.
+
+**Voorbeeld:**
+
+```python
+>>> set_translator({"Hallo": "Hello"}.get)
+>>> gettext("Hallo")
+'Hello'
+>>> set_translator(None)
+>>> gettext("Hallo")
+'Hallo'
+```
+
+#### `gettext(message: str, **params: object) -> str`
+
+Vertaal `message` en vul daarna de variabelen in.
+
+**Argumenten:**
+
+- `message`: De Nederlandse brontekst, eventueel met `%(naam)s`.
+- `**params`: De waarden voor de variabelen.
+
+**Geeft terug:**
+
+De vertaalde tekst met ingevulde variabelen; zonder vertaler de
+brontekst zelf. Geeft de vertaler niets terug, dan ook de brontekst.
+
+**Voorbeeld:**
+
+```python
+>>> gettext("Minimaal %(n)s tekens.", n=10)
+'Minimaal 10 tekens.'
+```
+
+#### `ngettext(singular: str, plural: str, n: int, **params: object) -> str`
+
+Vertaal een tekst met een enkelvoud en een meervoud.
+
+**Argumenten:**
+
+- `singular`: De Nederlandse tekst voor precies één.
+- `plural`: De Nederlandse tekst voor nul of meer dan één.
+- `n`: Het aantal; ook beschikbaar als `%(n)s` in de tekst.
+- `**params`: Overige variabelen.
+
+**Geeft terug:**
+
+De juiste vorm, vertaald en met ingevulde variabelen.
+
+**Voorbeeld:**
+
+```python
+>>> ngettext("%(n)s minuut", "%(n)s minuten", 1)
+'1 minuut'
+>>> ngettext("%(n)s minuut", "%(n)s minuten", 15)
+'15 minuten'
+```
+
+#### `N_(message: str) -> str`
+
+Markeer een tekst voor vertaling zonder hem nu te vertalen.
+
+Voor vaste tabellen die bij het importeren al bestaan, zoals labels per
+status: vertaal de waarde pas bij het tonen, met `gettext`.
+
+**Voorbeeld:**
+
+```python
+>>> LABELS = {"open": N_("Openstaand")}
+>>> gettext(LABELS["open"])
+'Openstaand'
+```
+
+#### `_(message: str, **params: object) -> str`
+
+Vertaal `message` en vul daarna de variabelen in.
+
+**Argumenten:**
+
+- `message`: De Nederlandse brontekst, eventueel met `%(naam)s`.
+- `**params`: De waarden voor de variabelen.
+
+**Geeft terug:**
+
+De vertaalde tekst met ingevulde variabelen; zonder vertaler de
+brontekst zelf. Geeft de vertaler niets terug, dan ook de brontekst.
+
+**Voorbeeld:**
+
+```python
+>>> gettext("Minimaal %(n)s tekens.", n=10)
+'Minimaal 10 tekens.'
+```
 
 ### `localtime`
 

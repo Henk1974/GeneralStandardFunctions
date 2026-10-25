@@ -21,6 +21,8 @@ from typing import Optional
 
 from itsdangerous import BadSignature, URLSafeSerializer
 
+from general_standard_functions.i18n import _
+
 __all__ = [
     "MIN_SECONDS",
     "MAX_SECONDS",
@@ -86,7 +88,7 @@ def create_challenge(
     b = rng.randint(2, 9)
     issued_at = int(now if now is not None else time.time())
     token = URLSafeSerializer(secret_key, salt=salt).dumps({"s": a + b, "t": issued_at})
-    return Challenge(question=f"Hoeveel is {a} + {b}?", token=token)
+    return Challenge(question=_("Hoeveel is %(a)s + %(b)s?", a=a, b=b), token=token)
 
 
 def verify_challenge(
@@ -120,17 +122,17 @@ def verify_challenge(
         expected = int(payload["s"])
         issued_at = int(payload["t"])
     except (BadSignature, KeyError, TypeError, ValueError) as exc:
-        raise CaptchaError("De controlevraag is ongeldig. Probeer het opnieuw.") from exc
+        raise CaptchaError(_("De controlevraag is ongeldig. Probeer het opnieuw.")) from exc
 
     elapsed = (now if now is not None else time.time()) - issued_at
     if elapsed < MIN_SECONDS:
-        raise CaptchaError("Dat ging wel erg snel. Probeer het nog eens.")
+        raise CaptchaError(_("Dat ging wel erg snel. Probeer het nog eens."))
     if elapsed > MAX_SECONDS:
-        raise CaptchaError("De controlevraag is verlopen. Beantwoord de nieuwe vraag.")
+        raise CaptchaError(_("De controlevraag is verlopen. Beantwoord de nieuwe vraag."))
 
     try:
         given = int((answer or "").strip())
     except ValueError as exc:
-        raise CaptchaError("Vul bij de controlevraag een getal in.") from exc
+        raise CaptchaError(_("Vul bij de controlevraag een getal in.")) from exc
     if given != expected:
-        raise CaptchaError("Het antwoord op de controlevraag klopt niet.")
+        raise CaptchaError(_("Het antwoord op de controlevraag klopt niet."))

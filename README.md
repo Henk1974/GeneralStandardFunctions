@@ -13,7 +13,7 @@ de code niet hoeft te lezen.
 Zet in `requirements.txt` (altijd een vaste versie):
 
 ```text
-general-standard-functions[web,postgres,storage] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v0.1.0
+general-standard-functions[web,postgres,storage] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v0.2.0
 ```
 
 Kies alleen de extra's die je nodig hebt; zie de tabel in FUNCTIONS.md.
