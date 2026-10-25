@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "general-standard-functions"
+version = "0.1.0"
+description = "Herbruikbare Python-functies voor Henks (web)projecten."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Henk Binnendijk" }]
+# Alleen wat elk onderdeel nodig heeft; de rest via de extra's hieronder.
+dependencies = [
+    "itsdangerous>=2.1,<3",
+    # Tijdzonedata voor zoneinfo; Windows en sommige servers hebben die niet.
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+web = ["Flask>=3.0,<4"]
+postgres = ["psycopg2-binary>=2.9,<3"]
+storage = ["requests>=2.31,<3"]
+all = ["general-standard-functions[web,postgres,storage]"]
+dev = ["general-standard-functions[all]", "pytest>=8.0,<9"]
+
+[project.urls]
+Repository = "https://github.com/Henk1974/GeneralStandardFunctions"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+general_standard_functions = ["py.typed"]
+
+[tool.pytest.ini_options]
+# Ook de voorbeelden in de docstrings worden getest, zodat ze kloppen.
+testpaths = ["tests", "src"]
+addopts = "--doctest-modules"
+doctest_optionflags = "ELLIPSIS IGNORE_EXCEPTION_DETAIL NORMALIZE_WHITESPACE"
