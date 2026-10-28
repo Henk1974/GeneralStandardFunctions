@@ -12,7 +12,7 @@ In `requirements.txt` van een project (vaste versie, zodat een update van
 dit pakket nooit ongemerkt een app verandert):
 
 ```text
-general-standard-functions[web,postgres,storage] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v0.2.0
+general-standard-functions[web,postgres,storage] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v0.3.0
 ```
 
 | Extra | Nodig voor | Installeert |
@@ -51,7 +51,7 @@ Tijdens het ontwikkelen aan dit pakket naast een app:
 | [`security.secrets_check`](#securitysecrets_check) | Controle: staan er per ongeluk geheimen in bestanden die git bijhoudt? |
 | [`security.tokens`](#securitytokens) | Geheime tokens voor links in mails (uitnodigen, wachtwoord herstellen). |
 | [`storage.images`](#storageimages) | Geüploade afbeeldingen opslaan onder een willekeurige, unieke naam. |
-| [`storage.supabase`](#storagesupabase) | Bestanden uploaden naar Supabase Storage via de REST-API (zonder SDK). |
+| [`storage.supabase`](#storagesupabase) | Bestanden uploaden naar en verwijderen uit Supabase Storage via de REST-API (zonder SDK). |
 | [`validation.barcode`](#validationbarcode) | Barcodes (EAN-8, EAN-13, UPC) normaliseren. |
 | [`validation.email`](#validationemail) | E-mailadressen controleren en normaliseren. |
 | [`validation.password`](#validationpassword) | Wachtwoordbeleid: lengte, verplichte tekensoorten en een zwakke-lijst. |
@@ -720,7 +720,9 @@ Geüploade afbeeldingen opslaan onder een willekeurige, unieke naam.
 
 Lokaal (ontwikkelen) in een map, in productie via een opslagdienst zoals
 `SupabaseStorageProvider`. De originele bestandsnaam van de gebruiker
-wordt nooit gebruikt, alleen de extensie (na controle).
+wordt nooit gebruikt, alleen de extensie (na controle). Met `delete` gaat
+een eigen upload weer weg, bijvoorbeeld als een gebruiker zijn account
+verwijdert.
 
 #### `DEFAULT_IMAGE_EXTENSIONS`
 
@@ -733,6 +735,10 @@ Een opslagdienst; bijvoorbeeld `SupabaseStorageProvider`.
 ##### `FileStorage.upload(filename: str, data: bytes, content_type: str) -> str`
 
 Sla het bestand op en geef de publieke URL terug.
+
+##### `FileStorage.delete(filename: str) -> None`
+
+Verwijder het bestand; een al verwijderd bestand is geen fout.
 
 #### `InvalidImageError` (uitzondering, subklasse van `ValueError`)
 
@@ -768,9 +774,36 @@ De URL: van de opslagdienst, of `<public_url_prefix>/<naam>`.
 - `InvalidImageError`: De extensie is niet toegestaan.
 - `RuntimeError`: Er is geen opslagdienst en geen map ingesteld.
 
+##### `ImageUploadService.delete(url: Optional[str]) -> bool`
+
+Verwijder een afbeelding die eerder met `save` is opgeslagen.
+
+Een URL van ergens anders (bijvoorbeeld een productfoto van een
+externe bron) wordt nooit aangeraakt.
+
+**Argumenten:**
+
+- `url`: De URL zoals `save` die teruggaf; `None` mag ook.
+
+**Geeft terug:**
+
+True als het een eigen upload was en die is verwijderd.
+
+**Fouten:**
+
+- Fouten van de opslagdienst, zoals `SupabaseStorageError`.
+
+**Voorbeeld:**
+
+```python
+>>> ImageUploadService(upload_folder="/tmp").delete("https://elders.example/foto.jpg")
+False
+```
+
 ### `storage.supabase`
 
-Bestanden uploaden naar Supabase Storage via de REST-API (zonder SDK).
+Bestanden uploaden naar en verwijderen uit Supabase Storage via de
+REST-API (zonder SDK).
 
 Gebruik de `service_role`-key alleen op de server, nooit in de browser,
 en commit hem nooit. De bucket moet publiek zijn als je de teruggegeven URL
@@ -811,6 +844,20 @@ De publieke URL van het bestand.
 **Fouten:**
 
 - `SupabaseStorageError`: De API gaf een foutstatus.
+- `requests.RequestException`: Netwerkfout of time-out.
+
+##### `SupabaseStorageProvider.delete(filename: str) -> None`
+
+Verwijder een bestand uit de bucket. Bestaat het niet (meer), dan
+is dat geen fout: het doel, weg zijn, is dan al bereikt.
+
+**Argumenten:**
+
+- `filename`: Naam in de bucket.
+
+**Fouten:**
+
+- `SupabaseStorageError`: De API gaf een andere foutstatus.
 - `requests.RequestException`: Netwerkfout of time-out.
 
 ## `validation`

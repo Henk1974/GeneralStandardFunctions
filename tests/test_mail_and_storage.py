@@ -89,3 +89,43 @@ def test_supabase_error_status_raises():
         post.return_value.text = "forbidden"
         with pytest.raises(SupabaseStorageError, match="403"):
             SupabaseStorageProvider("https://p.supabase.co", "key", "media").upload("a.jpg", b"d", "image/jpeg")
+
+
+# --- verwijderen (v0.3.0) -------------------------------------------------
+
+
+def test_local_upload_can_be_deleted(tmp_path):
+    service = ImageUploadService(upload_folder=str(tmp_path), public_url_prefix="/media")
+    url = service.save("foto.jpg", b"d", "image/jpeg")
+    assert service.delete(url) is True
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("url", [None, "", "https://images.openfoodfacts.org/abc.jpg", "/media/../geheim.txt",
+                                 "/elders/0123456789abcdef0123456789abcdef.jpg"])
+def test_delete_never_touches_other_files(tmp_path, url):
+    assert ImageUploadService(upload_folder=str(tmp_path), public_url_prefix="/media").delete(url) is False
+
+
+def test_delete_via_storage_provider_only_for_own_urls():
+    provider = MagicMock(public_prefix="https://p.supabase.co/storage/v1/object/public/media/")
+    service = ImageUploadService(storage_provider=provider)
+    name = "0123456789abcdef0123456789abcdef.png"
+    assert service.delete(provider.public_prefix + name) is True
+    provider.delete.assert_called_once_with(name)
+    assert service.delete("https://ander.example/" + name) is False
+
+
+def test_supabase_delete_treats_missing_file_as_done():
+    with patch("general_standard_functions.storage.supabase.requests.delete") as delete:
+        delete.return_value.status_code = 404
+        SupabaseStorageProvider("https://p.supabase.co", "key", "media").delete("a.jpg")
+    assert delete.call_args.args[0] == "https://p.supabase.co/storage/v1/object/media/a.jpg"
+
+
+def test_supabase_delete_error_raises():
+    with patch("general_standard_functions.storage.supabase.requests.delete") as delete:
+        delete.return_value.status_code = 500
+        delete.return_value.text = "kapot"
+        with pytest.raises(SupabaseStorageError, match="500"):
+            SupabaseStorageProvider("https://p.supabase.co", "key", "media").delete("a.jpg")

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "general-standard-functions"
-version = "0.2.0"
+version = "0.3.0"
 description = "Herbruikbare Python-functies voor Henks (web)projecten."
 readme = "README.md"
 requires-python = ">=3.11"

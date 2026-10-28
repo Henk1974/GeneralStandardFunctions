@@ -2,12 +2,15 @@
 
 Lokaal (ontwikkelen) in een map, in productie via een opslagdienst zoals
 ``SupabaseStorageProvider``. De originele bestandsnaam van de gebruiker
-wordt nooit gebruikt, alleen de extensie (na controle).
+wordt nooit gebruikt, alleen de extensie (na controle). Met ``delete`` gaat
+een eigen upload weer weg, bijvoorbeeld als een gebruiker zijn account
+verwijdert.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from collections.abc import Collection
 from typing import Optional, Protocol
@@ -19,11 +22,21 @@ __all__ = ["DEFAULT_IMAGE_EXTENSIONS", "FileStorage", "InvalidImageError", "Imag
 DEFAULT_IMAGE_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp"})
 
 
+# Alleen namen zoals ``save`` ze maakt; zo kan ``delete`` nooit buiten de
+# eigen opslag of map komen.
+_STORED_NAME_RE = re.compile(r"^[0-9a-f]{32}\.[a-z0-9]{1,5}$")
+
+
 class FileStorage(Protocol):
     """Een opslagdienst; bijvoorbeeld ``SupabaseStorageProvider``."""
 
+    public_prefix: str
+
     def upload(self, filename: str, data: bytes, content_type: str) -> str:
         """Sla het bestand op en geef de publieke URL terug."""
+
+    def delete(self, filename: str) -> None:
+        """Verwijder het bestand; een al verwijderd bestand is geen fout."""
 
 
 class InvalidImageError(ValueError):
@@ -84,3 +97,39 @@ class ImageUploadService:
         with open(os.path.join(self._upload_folder, stored_name), "wb") as fh:
             fh.write(data)
         return f"{self._public_url_prefix}/{stored_name}"
+
+    def delete(self, url: Optional[str]) -> bool:
+        """Verwijder een afbeelding die eerder met ``save`` is opgeslagen.
+
+        Een URL van ergens anders (bijvoorbeeld een productfoto van een
+        externe bron) wordt nooit aangeraakt.
+
+        Args:
+            url: De URL zoals ``save`` die teruggaf; ``None`` mag ook.
+
+        Returns:
+            True als het een eigen upload was en die is verwijderd.
+
+        Raises:
+            Fouten van de opslagdienst, zoals ``SupabaseStorageError``.
+
+        Example:
+            >>> ImageUploadService(upload_folder="/tmp").delete("https://elders.example/foto.jpg")
+            False
+        """
+        if not url:
+            return False
+        name = url.rsplit("/", 1)[-1]
+        if not _STORED_NAME_RE.match(name):
+            return False
+        if self._storage_provider is not None:
+            if not url.startswith(self._storage_provider.public_prefix):
+                return False
+            self._storage_provider.delete(name)
+            return True
+        if self._upload_folder is None or not url.startswith(f"{self._public_url_prefix}/"):
+            return False
+        path = os.path.join(self._upload_folder, name)
+        if os.path.exists(path):
+            os.remove(path)
+        return True

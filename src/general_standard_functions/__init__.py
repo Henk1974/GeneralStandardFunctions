@@ -5,4 +5,4 @@ Importeer altijd uit het submodule waar een functie woont, bijvoorbeeld
 Een overzicht van alle functies staat in FUNCTIONS.md in de root van de repo.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

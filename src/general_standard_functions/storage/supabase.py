@@ -1,4 +1,5 @@
-"""Bestanden uploaden naar Supabase Storage via de REST-API (zonder SDK).
+"""Bestanden uploaden naar en verwijderen uit Supabase Storage via de
+REST-API (zonder SDK).
 
 Gebruik de ``service_role``-key alleen op de server, nooit in de browser,
 en commit hem nooit. De bucket moet publiek zijn als je de teruggegeven URL
@@ -64,4 +65,35 @@ class SupabaseStorageProvider:
             raise SupabaseStorageError(
                 f"Upload naar Supabase Storage mislukt ({response.status_code}): {response.text}"
             )
-        return f"{self._base_url}/storage/v1/object/public/{self._bucket}/{filename}"
+        return f"{self.public_prefix}{filename}"
+
+    @property
+    def public_prefix(self) -> str:
+        """Begin van elke publieke URL in deze bucket, eindigt op ``/``.
+
+        Example:
+            >>> SupabaseStorageProvider("https://p.supabase.co", "key", "media").public_prefix
+            'https://p.supabase.co/storage/v1/object/public/media/'
+        """
+        return f"{self._base_url}/storage/v1/object/public/{self._bucket}/"
+
+    def delete(self, filename: str) -> None:
+        """Verwijder een bestand uit de bucket. Bestaat het niet (meer), dan
+        is dat geen fout: het doel, weg zijn, is dan al bereikt.
+
+        Args:
+            filename: Naam in de bucket.
+
+        Raises:
+            SupabaseStorageError: De API gaf een andere foutstatus.
+            requests.RequestException: Netwerkfout of time-out.
+        """
+        response = requests.delete(
+            f"{self._base_url}/storage/v1/object/{self._bucket}/{filename}",
+            headers={"Authorization": f"Bearer {self._service_role_key}"},
+            timeout=self._timeout,
+        )
+        if response.status_code >= 300 and response.status_code not in (400, 404):
+            raise SupabaseStorageError(
+                f"Verwijderen uit Supabase Storage mislukt ({response.status_code}): {response.text}"
+            )
