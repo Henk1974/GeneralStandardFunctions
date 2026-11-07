@@ -57,15 +57,16 @@ In `requirements.txt` van een project (vaste versie, zodat een update van
 dit pakket nooit ongemerkt een app verandert):
 
 ```text
-general-standard-functions[web,postgres,storage] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v{general_standard_functions.__version__}
+general-standard-functions[web,postgres,storage,billing] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v{general_standard_functions.__version__}
 ```
 
 | Extra | Nodig voor | Installeert |
 |---|---|---|
-| *(geen)* | `validation`, `localtime`, `security`, `mail` | itsdangerous, tzdata |
+| *(geen)* | `validation`, `localtime`, `security`, `mail`, `billing.catalog`, `billing.subscriptions` | itsdangerous, tzdata |
 | `web` | `web.csrf`, `web.errors` | Flask |
 | `postgres` | `db.migrations` (standaard-driver) | psycopg2-binary |
 | `storage` | `storage.supabase` | requests |
+| `billing` | `billing.stripe` (`billing.catalog` en `billing.subscriptions` hebben niets nodig) | requests |
 
 Tijdens het ontwikkelen aan dit pakket naast een app:
 `pip install -e "../GeneralStandardFunctions[all]"`.

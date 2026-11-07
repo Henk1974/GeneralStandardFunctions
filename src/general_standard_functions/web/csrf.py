@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hmac
 import secrets
+from typing import Iterable
 
 from flask import Flask, flash, redirect, request, session, url_for
 from markupsafe import Markup, escape
@@ -58,7 +59,7 @@ def csrf_field() -> Markup:
     return Markup(f'<input type="hidden" name="{FIELD_NAME}" value="{escape(get_csrf_token())}">')
 
 
-def init_csrf(app: Flask, fallback_endpoint: str) -> None:
+def init_csrf(app: Flask, fallback_endpoint: str, exempt_endpoints: Iterable[str] = ()) -> None:
     """Zet CSRF-controle aan voor alle onveilige verzoeken van de app.
 
     Registreert ``csrf_field`` en ``csrf_token`` als Jinja-globals en een
@@ -70,13 +71,19 @@ def init_csrf(app: Flask, fallback_endpoint: str) -> None:
         app: De Flask-app.
         fallback_endpoint: Endpoint om naartoe te sturen als de vorige
             pagina onbekend of van een andere site is, bijv. ``"web.dashboard"``.
+        exempt_endpoints: Endpoints zonder controle. Alleen voor verzoeken
+            die niet uit een browser komen en zelf hun afzender controleren,
+            zoals een webhook met een handtekening.
     """
+    exempt = frozenset(exempt_endpoints)
     app.jinja_env.globals["csrf_field"] = csrf_field
     app.jinja_env.globals["csrf_token"] = get_csrf_token
 
     @app.before_request
     def _check_csrf():
         if request.method not in _UNSAFE_METHODS or not app.config.get("CSRF_ENABLED", True):
+            return None
+        if request.endpoint in exempt:
             return None
         expected = session.get(_SESSION_KEY)
         given = request.form.get(FIELD_NAME, "")

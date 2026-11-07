@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "general-standard-functions"
-version = "0.3.0"
+version = "0.4.0"
 description = "Herbruikbare Python-functies voor Henks (web)projecten."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,7 +21,8 @@ dependencies = [
 web = ["Flask>=3.0,<4"]
 postgres = ["psycopg2-binary>=2.9,<3"]
 storage = ["requests>=2.31,<3"]
-all = ["general-standard-functions[web,postgres,storage]"]
+billing = ["requests>=2.31,<3"]
+all = ["general-standard-functions[web,postgres,storage,billing]"]
 dev = ["general-standard-functions[all]", "pytest>=8.0,<9"]
 
 [project.urls]

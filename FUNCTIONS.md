@@ -12,15 +12,16 @@ In `requirements.txt` van een project (vaste versie, zodat een update van
 dit pakket nooit ongemerkt een app verandert):
 
 ```text
-general-standard-functions[web,postgres,storage] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v0.3.0
+general-standard-functions[web,postgres,storage,billing] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v0.4.0
 ```
 
 | Extra | Nodig voor | Installeert |
 |---|---|---|
-| *(geen)* | `validation`, `localtime`, `security`, `mail` | itsdangerous, tzdata |
+| *(geen)* | `validation`, `localtime`, `security`, `mail`, `billing.catalog`, `billing.subscriptions` | itsdangerous, tzdata |
 | `web` | `web.csrf`, `web.errors` | Flask |
 | `postgres` | `db.migrations` (standaard-driver) | psycopg2-binary |
 | `storage` | `storage.supabase` | requests |
+| `billing` | `billing.stripe` (`billing.catalog` en `billing.subscriptions` hebben niets nodig) | requests |
 
 Tijdens het ontwikkelen aan dit pakket naast een app:
 `pip install -e "../GeneralStandardFunctions[all]"`.
@@ -39,6 +40,9 @@ Tijdens het ontwikkelen aan dit pakket naast een app:
 
 | Module | Waarvoor |
 |---|---|
+| [`billing.catalog`](#billingcatalog) | Plannen, add-ons en de rechten die ze geven, op één plek. |
+| [`billing.stripe`](#billingstripe) | Stripe-abonnementen via de REST-API, zonder SDK. |
+| [`billing.subscriptions`](#billingsubscriptions) | Wanneer geeft een betaald abonnement rechten? |
 | [`db.migrations`](#dbmigrations) | Migratie-runner: voer genummerde ``.sql``-bestanden één keer uit, op volgorde. |
 | [`db.request_scope`](#dbrequest_scope) | Eén databaseverbinding per webverzoek, met een transactie per blok. |
 | [`i18n`](#i18n) | Vertaalhaak voor de meldingen van dit pakket (en van een app zelf). |
@@ -57,6 +61,499 @@ Tijdens het ontwikkelen aan dit pakket naast een app:
 | [`validation.password`](#validationpassword) | Wachtwoordbeleid: lengte, verplichte tekensoorten en een zwakke-lijst. |
 | [`web.csrf`](#webcsrf) | CSRF-bescherming voor alle formulieren van een Flask-app, zonder extra pakket. |
 | [`web.errors`](#weberrors) | Een veilige foutpagina: de gebruiker ziet nooit SQL of een stacktrace. |
+
+## `billing`
+
+Abonnementen: plannen en add-ons, rechten over tijd, en Stripe.
+
+- `catalog`: plannen, add-ons, prijzen in centen en de rechten die ze geven;
+- `subscriptions`: wanneer een betaald abonnement nog rechten geeft;
+- `stripe`: webhook-handtekeningen controleren en de Stripe-API aanroepen
+  (vereist de extra `billing`, dus requests).
+
+De app bewaart zelf welke gebruiker welk abonnement heeft; dit pakket weet
+niets van gebruikers of databases.
+
+### `billing.catalog`
+
+Plannen, add-ons en de rechten die ze geven, op één plek.
+
+Een plan is het basisabonnement (bijv. Gratis, Pro, Super); een add-on komt
+er los bij en mag alleen bij bepaalde plannen (bijv. een extra functie bij
+Pro). Prijzen staan in centen, zodat er nooit afrondingsfouten ontstaan.
+Rechten zijn functies (`features`) en limieten (`limits`, `None` is
+onbeperkt).
+
+Voorbeeld:
+
+```python
+CATALOG = Catalog(
+    plans=[
+        Plan("free", "Gratis", rank=0, limits={"items": 20}),
+        Plan("pro", "Pro", rank=1, prices={"month": 149, "year": 1499}, limits={"items": 250}),
+    ],
+    addons=[AddOn("extra", "Extra", prices={"month": 99}, features={"groups"}, plans={"pro"})],
+    default_plan="free",
+)
+CATALOG.entitlements("pro", ["extra"]).has("groups")  # True
+```
+
+#### `INTERVALS`
+
+Constante, waarde: `('month', 'year')`
+
+#### `Plan(code: str, name: str, rank: int, prices: Mapping[str, int] = <factory>, limits: Mapping[str, Optional[int]] = <factory>, features: frozenset = {})`
+
+Een basisabonnement.
+
+**Velden:**
+
+- `code`: Vaste, korte naam voor de database, bijv. `"pro"`.
+- `name`: Naam om te tonen.
+- `rank`: Hoger is uitgebreider; bepaalt wat een upgrade is.
+- `prices`: Prijs in centen per interval (`"month"`, `"year"`); leeg voor een gratis plan.
+- `limits`: Limieten, bijv. `{"items": 250}`; `None` is onbeperkt.
+- `features`: Functies die bij dit plan horen.
+
+#### `AddOn(code: str, name: str, prices: Mapping[str, int] = <factory>, features: frozenset = {}, plans: frozenset = {})`
+
+Een uitbreiding bovenop een plan.
+
+**Velden:**
+
+- `code`: Vaste, korte naam, bijv. `"extra"`.
+- `name`: Naam om te tonen.
+- `prices`: Prijs in centen per interval.
+- `features`: Functies die de add-on toevoegt.
+- `plans`: Codes van de plannen waarbij de add-on mag.
+
+#### `Entitlements(plan: str, addons: frozenset = {}, features: frozenset = {}, limits: Mapping[str, Optional[int]] = <factory>)`
+
+De rechten die iemand op dit moment heeft.
+
+**Velden:**
+
+- `plan`: Code van het plan waar de rechten vandaan komen (het hoogste).
+- `addons`: Codes van de actieve add-ons.
+- `features`: Alle functies samen.
+- `limits`: Alle limieten; een naam die ontbreekt is onbeperkt.
+
+##### `Entitlements.has(feature: str) -> bool`
+
+`True` als de functie bij deze rechten hoort.
+
+**Voorbeeld:**
+
+```python
+>>> Entitlements("pro", features=frozenset({"groups"})).has("groups")
+True
+```
+
+##### `Entitlements.limit(name: str) -> Optional[int]`
+
+De limiet met deze naam; `None` is onbeperkt.
+
+**Voorbeeld:**
+
+```python
+>>> Entitlements("free", limits={"items": 20}).limit("items")
+20
+>>> Entitlements("free").limit("items") is None
+True
+```
+
+##### `Entitlements.merge(other: 'Entitlements', ranks: Mapping[str, int]) -> 'Entitlements'`
+
+Combineer twee bronnen van rechten (bijv. een cadeau en een betaald
+abonnement): alle functies samen en per limiet de ruimste.
+
+**Argumenten:**
+
+- `other`: De andere rechten.
+- `ranks`: Rang per plancode, om het plan van de uitkomst te kiezen.
+
+**Voorbeeld:**
+
+```python
+>>> a = Entitlements("free", limits={"items": 20})
+>>> b = Entitlements("pro", features=frozenset({"x"}), limits={"items": 250})
+>>> m = a.merge(b, {"free": 0, "pro": 1})
+>>> (m.plan, m.limit("items"), m.has("x"))
+('pro', 250, True)
+```
+
+#### `Catalog(plans: Iterable[Plan], addons: Iterable[AddOn] = (), default_plan: str = 'free')`
+
+Alle plannen en add-ons van een app.
+
+**Argumenten:**
+
+- `plans`: De plannen; codes moeten uniek zijn.
+- `addons`: De add-ons.
+- `default_plan`: Code van het plan voor wie niets heeft (meestal gratis).
+
+**Fouten:**
+
+- `ValueError`: Dubbele codes, onbekend standaardplan, een onbekend interval of een add-on bij een plan dat niet bestaat.
+
+##### `Catalog.plan(code: str) -> Plan`
+
+Het plan met deze code.
+
+**Fouten:**
+
+- `UnknownProductError`: Bestaat niet.
+
+##### `Catalog.addon(code: str) -> AddOn`
+
+De add-on met deze code.
+
+**Fouten:**
+
+- `UnknownProductError`: Bestaat niet.
+
+##### `Catalog.addon_allowed(plan_code: str, addon_code: str) -> bool`
+
+`True` als de add-on bij dit plan mag.
+
+##### `Catalog.entitlements(plan_code: Optional[str] = None, addon_codes: Iterable[str] = ()) -> Entitlements`
+
+De rechten van een plan met add-ons.
+
+Add-ons die niet bij het plan mogen of niet bestaan, tellen niet mee:
+zo geeft een vergeten add-on na een upgrade of downgrade nooit
+ongemerkt rechten.
+
+**Argumenten:**
+
+- `plan_code`: Code van het plan; `None` of onbekend is het standaardplan.
+- `addon_codes`: Codes van de add-ons.
+
+**Geeft terug:**
+
+De rechten.
+
+##### `Catalog.price(code: str, interval: str) -> int`
+
+De prijs in centen van een plan of add-on voor dit interval.
+
+**Fouten:**
+
+- `UnknownProductError`: Product of interval bestaat niet.
+
+#### `UnknownProductError` (uitzondering, subklasse van `ValueError`)
+
+Een plan of add-on bestaat niet in de catalogus, of een add-on mag niet bij dit plan.
+
+#### `format_cents(cents: int, decimal_separator: str = ',') -> str`
+
+Zet een bedrag in centen om naar tekst met twee decimalen, zonder valuta.
+
+**Argumenten:**
+
+- `cents`: Bedrag in centen.
+- `decimal_separator`: Scheidingsteken voor de decimalen.
+
+**Voorbeeld:**
+
+```python
+>>> format_cents(149)
+'1,49'
+>>> format_cents(2499, ".")
+'24.99'
+```
+
+### `billing.stripe`
+
+Stripe-abonnementen via de REST-API, zonder SDK.
+
+Twee delen:
+
+- `verify_webhook`: controleert de handtekening van een webhook van
+  Stripe. Verwerk nooit een webhook zonder deze controle; iedereen kan een
+  verzoek naar je webhook-URL sturen.
+- `StripeClient`: afrekenpagina's (Checkout), het klantportaal en het
+  wijzigen of opzeggen van abonnementen.
+
+Gebruik alleen de geheime sleutel (`sk_...`) op de server, nooit in de
+browser, en commit hem nooit. Prijzen geef je mee als Stripe-prijs-ID's
+(`price_...`) uit je eigen serverconfiguratie, nooit uit een formulier.
+
+Vertrouw daarnaast nooit op de inhoud van een webhook alleen: haal het
+abonnement met `get_subscription` opnieuw op. Dan maakt de volgorde
+waarin meldingen binnenkomen ook niet uit.
+
+#### `WebhookSignatureError` (uitzondering, subklasse van `Exception`)
+
+De handtekening van een webhook ontbreekt, klopt niet of is te oud.
+
+#### `StripeError` (uitzondering, subklasse van `Exception`)
+
+Stripe gaf een foutstatus terug.
+
+**Velden:**
+
+- `status`: De HTTP-status.
+- `message`: De foutmelding van Stripe.
+
+#### `StripeSubscription(id: str, customer: str, status: str, items: tuple = (), current_period_end: Optional[datetime] = None, cancel_at_period_end: bool = False, interval: Optional[str] = None, schedule: Optional[str] = None, metadata: Mapping[str, str] = <factory>)`
+
+De velden van een Stripe-abonnement die een app nodig heeft.
+
+**Velden:**
+
+- `id`: `sub_...`.
+- `customer`: `cus_...`.
+- `status`: Bijv. `"active"`, `"past_due"`, `"canceled"`.
+- `items`: Paren `(item_id, price_id)`.
+- `current_period_end`: Einde van de betaalde periode (UTC), of `None`.
+- `cancel_at_period_end`: Opgezegd tegen het einde van de periode.
+- `interval`: `"month"` of `"year"` (van het eerste item).
+- `schedule`: ID van een gepland wijzigingsschema (`sub_sched_...`), of `None`.
+- `metadata`: De metadata van het abonnement.
+
+#### `verify_webhook(payload: bytes, signature_header: str, secret: str, tolerance: int = 300, now: Optional[float] = None) -> dict`
+
+Controleer de handtekening van een Stripe-webhook en geef de melding terug.
+
+Stripe ondertekent `"{tijdstip}.{body}"` met HMAC-SHA256 en het
+webhookgeheim (`whsec_...`) en stuurt dat mee in de header
+`Stripe-Signature` als `t=...,v1=...`.
+
+**Argumenten:**
+
+- `payload`: De ruwe body, precies zoals ontvangen (niet opnieuw als JSON opgebouwd).
+- `signature_header`: De waarde van `Stripe-Signature`.
+- `secret`: Het webhookgeheim.
+- `tolerance`: Maximale leeftijd in seconden; beschermt tegen het opnieuw afspelen van een oude melding.
+- `now`: Huidig tijdstip (Unix-seconden); alleen voor tests.
+
+**Geeft terug:**
+
+De melding als dict.
+
+**Fouten:**
+
+- `WebhookSignatureError`: Geen geheim, geen of ongeldige handtekening, te oud, of geen geldige JSON.
+
+**Voorbeeld:**
+
+```python
+>>> import hashlib, hmac
+>>> body = b'{"id": "evt_1", "type": "ping"}'
+>>> sig = hmac.new(b"whsec_x", b"100." + body, hashlib.sha256).hexdigest()
+>>> verify_webhook(body, f"t=100,v1={sig}", "whsec_x", now=150)["id"]
+'evt_1'
+```
+
+#### `parse_subscription(data: Mapping[str, Any]) -> StripeSubscription`
+
+Haal de bruikbare velden uit een Stripe-abonnementsobject.
+
+Werkt met oude en nieuwe API-versies: sinds 2025 staat het einde van de
+periode per item in plaats van op het abonnement. Een opzegging via
+`cancel_at` telt ook als opgezegd.
+
+**Argumenten:**
+
+- `data`: Het abonnement zoals Stripe het teruggeeft.
+
+**Voorbeeld:**
+
+```python
+>>> sub = parse_subscription({"id": "sub_1", "customer": "cus_1", "status": "active",
+...     "items": {"data": [{"id": "si_1", "price": {"id": "price_1", "recurring": {"interval": "year"}},
+...                         "current_period_end": 1767225600}]}})
+>>> (sub.price_ids, sub.interval, sub.current_period_end.year)
+(['price_1'], 'year', 2026)
+```
+
+#### `StripeClient(secret_key: str, timeout: float = 15.0, api_base: str = 'https://api.stripe.com/v1')`
+
+Praat met de Stripe-API voor abonnementen.
+
+**Argumenten:**
+
+- `secret_key`: De geheime sleutel (`sk_test_...` of `sk_live_...`).
+- `timeout`: Seconden voordat een verzoek opgeeft.
+- `api_base`: Basis-URL van de API; alleen voor tests.
+
+##### `StripeClient.create_checkout_session(prices: Sequence[str], success_url: str, cancel_url: str, client_reference_id: str, customer: Optional[str] = None, customer_email: Optional[str] = None, metadata: Optional[Mapping[str, str]] = None, locale: Optional[str] = None) -> dict`
+
+Maak een afrekenpagina voor een nieuw abonnement.
+
+Stuur de gebruiker daarna naar `result["url"]`. De rechten geef je
+pas als de webhook laat zien dat het abonnement actief is, niet als
+de gebruiker terugkomt op `success_url`.
+
+**Argumenten:**
+
+- `prices`: Prijs-ID's; het eerste is het plan, de rest add-ons.
+- `success_url`: Terug na betalen.
+- `cancel_url`: Terug na afbreken.
+- `client_reference_id`: Jouw eigen ID van de gebruiker.
+- `customer`: Bestaande Stripe-klant (`cus_...`), zodat er geen tweede klant ontstaat.
+- `customer_email`: E-mailadres om vooraf in te vullen als er nog geen klant is.
+- `metadata`: Komt op het abonnement terecht (bijv. jouw gebruikers-ID).
+- `locale`: Taal van de afrekenpagina, bijv. `"nl"`; leeg is automatisch.
+
+**Geeft terug:**
+
+Het sessie-object van Stripe, met `url`.
+
+**Fouten:**
+
+- `StripeError`: Stripe weigerde het verzoek.
+- `requests.RequestException`: Netwerkfout of time-out.
+
+##### `StripeClient.create_portal_session(customer: str, return_url: str, locale: Optional[str] = None) -> dict`
+
+Maak een sessie in het klantportaal van Stripe (betaalgegevens,
+facturen, opzeggen). Stuur de gebruiker naar `result["url"]`.
+
+**Fouten:**
+
+- `StripeError`: Stripe weigerde het verzoek (bijv. portaal niet ingesteld).
+
+##### `StripeClient.get_subscription(subscription_id: str) -> StripeSubscription`
+
+Haal een abonnement op, met de actuele status.
+
+**Fouten:**
+
+- `StripeError`: Bestaat niet of geen toegang.
+
+##### `StripeClient.change_items(subscription_id: str, replace: Optional[Mapping[str, str]] = None, add: Sequence[str] = (), remove: Sequence[str] = (), idempotency_key: Optional[str] = None) -> StripeSubscription`
+
+Wijzig direct de items van een abonnement (een upgrade of een add-on erbij).
+
+Het verschil wordt meteen gefactureerd (`always_invoice`). Lukt die
+betaling niet, dan weigert Stripe de hele wijziging
+(`error_if_incomplete`), zodat er nooit rechten zonder betaling zijn.
+
+**Argumenten:**
+
+- `subscription_id`: `sub_...`.
+- `replace`: Item-ID naar nieuwe prijs-ID.
+- `add`: Prijs-ID's om toe te voegen.
+- `remove`: Item-ID's om te verwijderen.
+- `idempotency_key`: Voorkomt dat een herhaald verzoek dubbel wordt uitgevoerd.
+
+**Fouten:**
+
+- `StripeError`: Stripe weigerde de wijziging, bijv. omdat de betaling mislukte.
+
+##### `StripeClient.schedule_change_at_period_end(subscription: StripeSubscription, prices: Sequence[str]) -> str`
+
+Plan een wijziging (bijv. een downgrade) die pas ingaat aan het eind
+van de betaalde periode. Tot dan blijven de huidige items en rechten.
+
+Werkt met een abonnementsschema van Stripe: de huidige fase loopt tot
+het einde van de periode, daarna volgen de nieuwe prijzen en geeft
+het schema het abonnement weer vrij.
+
+**Argumenten:**
+
+- `subscription`: Het actuele abonnement (van `get_subscription`).
+- `prices`: De prijs-ID's na de wijziging.
+
+**Geeft terug:**
+
+Het ID van het schema.
+
+**Fouten:**
+
+- `StripeError`: Stripe weigerde het schema.
+- `ValueError`: Het abonnement heeft geen einde van de periode.
+
+##### `StripeClient.release_schedule(schedule_id: str) -> None`
+
+Haal een gepland wijzigingsschema weg; het abonnement blijft zoals het nu is.
+
+**Fouten:**
+
+- `StripeError`: Stripe weigerde het verzoek.
+
+##### `StripeClient.set_cancel_at_period_end(subscription_id: str, cancel: bool) -> StripeSubscription`
+
+Zeg op tegen het einde van de betaalde periode, of trek een opzegging in.
+
+**Fouten:**
+
+- `StripeError`: Stripe weigerde het verzoek.
+
+##### `StripeClient.cancel_now(subscription_id: str) -> StripeSubscription`
+
+Beëindig een abonnement direct (de rechten vervallen meteen).
+Een terugbetaling doe je apart, in het Stripe-dashboard.
+
+**Fouten:**
+
+- `StripeError`: Stripe weigerde het verzoek.
+
+### `billing.subscriptions`
+
+Wanneer geeft een betaald abonnement rechten?
+
+De status komt van de betaalprovider (de namen zijn die van Stripe, maar ook
+bruikbaar voor andere providers). Regels:
+
+- `active` en `trialing`: rechten;
+- `past_due`: de betaling is mislukt en de provider probeert het opnieuw;
+  rechten blijven tot de provider het abonnement beëindigt;
+- al het andere (`canceled`, `unpaid`, `incomplete`, ...): geen rechten.
+
+Daarnaast vervallen de rechten als de betaalde periode al langer dan
+`grace` voorbij is. Dat vangt een gemiste melding van de provider op: een
+abonnement blijft dan nooit eindeloos gratis doorlopen.
+
+Opzeggen tegen het einde van de periode (`cancel_at_period_end`) houdt de
+rechten tot die datum; daarna meldt de provider `canceled`.
+
+#### `ACCESS_STATUSES`
+
+Constante, waarde: `{'active', 'past_due', 'trialing'}`
+
+#### `DEFAULT_GRACE`
+
+Constante, waarde: `datetime.timedelta(days=3)`
+
+#### `SubscriptionState(plan: str, addons: frozenset = <factory>, status: str = 'active', current_period_end: Optional[datetime] = None, cancel_at_period_end: bool = False, interval: Optional[str] = None)`
+
+Wat de app over een betaald abonnement weet.
+
+**Velden:**
+
+- `plan`: Code van het basisplan.
+- `addons`: Codes van de add-ons.
+- `status`: Status bij de provider, bijv. `"active"`.
+- `current_period_end`: Einde van de betaalde periode (met tijdzone).
+- `cancel_at_period_end`: Opgezegd; loopt af op `current_period_end`.
+- `interval`: `"month"` of `"year"`.
+
+#### `grants_access(state: Optional[SubscriptionState], now: datetime, grace: timedelta = DEFAULT_GRACE) -> bool`
+
+`True` als dit abonnement op `now` rechten geeft.
+
+**Argumenten:**
+
+- `state`: Het abonnement, of `None` als er geen is.
+- `now`: Het huidige moment (met tijdzone).
+- `grace`: Hoe lang na het einde van de periode de rechten nog blijven als de provider (nog) niets heeft gemeld.
+
+**Voorbeeld:**
+
+```python
+>>> from datetime import timezone
+>>> end = datetime(2026, 2, 1, tzinfo=timezone.utc)
+>>> grants_access(SubscriptionState("pro", current_period_end=end), datetime(2026, 1, 15, tzinfo=timezone.utc))
+True
+>>> grants_access(SubscriptionState("pro", status="canceled", current_period_end=end),
+...               datetime(2026, 1, 15, tzinfo=timezone.utc))
+False
+>>> grants_access(SubscriptionState("pro", current_period_end=end), datetime(2026, 3, 1, tzinfo=timezone.utc))
+False
+```
 
 ## `db`
 
@@ -1086,7 +1583,7 @@ Geef het verborgen formulierveld met het token.
 `<input type="hidden" name="csrf_token" value="...">` als veilige
 HTML; in templates `{{ csrf_field() }}`.
 
-#### `init_csrf(app: Flask, fallback_endpoint: str) -> None`
+#### `init_csrf(app: Flask, fallback_endpoint: str, exempt_endpoints: Iterable[str] = ()) -> None`
 
 Zet CSRF-controle aan voor alle onveilige verzoeken van de app.
 
@@ -1099,6 +1596,7 @@ vorige pagina van deze site, of anders naar `fallback_endpoint`.
 
 - `app`: De Flask-app.
 - `fallback_endpoint`: Endpoint om naartoe te sturen als de vorige pagina onbekend of van een andere site is, bijv. `"web.dashboard"`.
+- `exempt_endpoints`: Endpoints zonder controle. Alleen voor verzoeken die niet uit een browser komen en zelf hun afzender controleren, zoals een webhook met een handtekening.
 
 ### `web.errors`
 

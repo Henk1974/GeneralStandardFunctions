@@ -10,7 +10,7 @@ def app(tmp_path):
     (tmp_path / "fout.html").write_text("Er ging iets mis", encoding="utf-8")
     app = Flask(__name__, template_folder=str(tmp_path))
     app.secret_key = "test"
-    init_csrf(app, fallback_endpoint="home")
+    init_csrf(app, fallback_endpoint="home", exempt_endpoints=["hook"])
     register_error_page(app, "fout.html")
 
     @app.route("/")
@@ -20,6 +20,10 @@ def app(tmp_path):
     @app.route("/form", methods=["GET", "POST"])
     def form():
         return render_template_string("<form>{{ csrf_field() }}</form>")
+
+    @app.route("/hook", methods=["POST"])
+    def hook():
+        return "ok"
 
     @app.route("/boom")
     def boom():
@@ -58,6 +62,12 @@ def test_redirect_goes_back_only_to_own_site(app):
 def test_csrf_can_be_disabled_for_tests(app):
     app.config["CSRF_ENABLED"] = False
     assert app.test_client().post("/form").status_code == 200
+
+
+def test_exempt_endpoint_needs_no_token(app):
+    client = app.test_client()
+    assert client.post("/hook").status_code == 200
+    assert client.post("/form").status_code == 302  # de rest blijft beschermd
 
 
 def test_error_page_hides_details(app):
