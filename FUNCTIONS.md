@@ -12,16 +12,17 @@ In `requirements.txt` van een project (vaste versie, zodat een update van
 dit pakket nooit ongemerkt een app verandert):
 
 ```text
-general-standard-functions[web,postgres,storage,billing] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v0.4.0
+general-standard-functions[web,postgres,storage,billing] @ git+https://github.com/Henk1974/GeneralStandardFunctions.git@v0.5.0
 ```
 
 | Extra | Nodig voor | Installeert |
 |---|---|---|
-| *(geen)* | `validation`, `localtime`, `security`, `mail`, `billing.catalog`, `billing.subscriptions` | itsdangerous, tzdata |
+| *(geen)* | `validation`, `localtime`, `seasons`, `security`, `mail`, `billing.catalog`, `billing.subscriptions` | itsdangerous, tzdata |
 | `web` | `web.csrf`, `web.errors` | Flask |
 | `postgres` | `db.migrations` (standaard-driver) | psycopg2-binary |
 | `storage` | `storage.supabase` | requests |
 | `billing` | `billing.stripe` (`billing.catalog` en `billing.subscriptions` hebben niets nodig) | requests |
+| `weather` | `weather.metno`, `geo.nominatim` | requests |
 
 Tijdens het ontwikkelen aan dit pakket naast een app:
 `pip install -e "../GeneralStandardFunctions[all]"`.
@@ -45,9 +46,11 @@ Tijdens het ontwikkelen aan dit pakket naast een app:
 | [`billing.subscriptions`](#billingsubscriptions) | Wanneer geeft een betaald abonnement rechten? |
 | [`db.migrations`](#dbmigrations) | Migratie-runner: voer genummerde ``.sql``-bestanden één keer uit, op volgorde. |
 | [`db.request_scope`](#dbrequest_scope) | Eén databaseverbinding per webverzoek, met een transactie per blok. |
+| [`geo.nominatim`](#geonominatim) | Plaatsnamen omzetten naar coördinaten met OpenStreetMap Nominatim. |
 | [`i18n`](#i18n) | Vertaalhaak voor de meldingen van dit pakket (en van een app zelf). |
 | [`localtime`](#localtime) | Tijdstippen opslaan in UTC en tonen in lokale (standaard Nederlandse) tijd. |
 | [`mail.smtp`](#mailsmtp) | E-mail versturen via SMTP, alleen met de standaardbibliotheek. |
+| [`seasons`](#seasons) | Jaargetijden: welk seizoen het is op een datum, ook op het zuidelijk halfrond. |
 | [`security.captcha`](#securitycaptcha) | Eenvoudige robotcontrole voor openbare formulieren, zonder externe dienst. |
 | [`security.lockout`](#securitylockout) | Inlogpogingen beperken: wanneer blokkeren, wanneer verplicht resetten. |
 | [`security.redirects`](#securityredirects) | Veilig doorsturen: nooit naar een andere website (open redirect). |
@@ -59,6 +62,7 @@ Tijdens het ontwikkelen aan dit pakket naast een app:
 | [`validation.barcode`](#validationbarcode) | Barcodes (EAN-8, EAN-13, UPC) normaliseren. |
 | [`validation.email`](#validationemail) | E-mailadressen controleren en normaliseren. |
 | [`validation.password`](#validationpassword) | Wachtwoordbeleid: lengte, verplichte tekensoorten en een zwakke-lijst. |
+| [`weather.metno`](#weathermetno) | Weersverwachting van het Noorse meteorologisch instituut (MET Norway). |
 | [`web.csrf`](#webcsrf) | CSRF-bescherming voor alle formulieren van een Flask-app, zonder extra pakket. |
 | [`web.errors`](#weberrors) | Een veilige foutpagina: de gebruiker ziet nooit SQL of een stacktrace. |
 
@@ -679,6 +683,67 @@ Geef een verbinding voor één transactie.
 
 De verbinding. Commit gebeurt automatisch aan het eind van het
 blok, rollback bij een uitzondering (die daarna doorgaat).
+
+## `geo`
+
+Plaatsen en coördinaten.
+
+`nominatim` vereist de extra `weather` (requests).
+
+### `geo.nominatim`
+
+Plaatsnamen omzetten naar coördinaten met OpenStreetMap Nominatim.
+
+Gratis, met een gebruiksbeleid: een eigen User-Agent met contactgegevens,
+hooguit één verzoek per seconde (deze client wacht zo nodig zelf) en
+resultaten bewaren in plaats van steeds opnieuw vragen. Vermeld de bron:
+"© OpenStreetMap-bijdragers".
+
+Voor privacy: rond coördinaten af met `coarse` voordat je ze bewaart; met
+één decimaal ligt de plek op ongeveer 10 km nauwkeurig, dus geen adres.
+
+#### `NominatimError` (uitzondering, subklasse van `Exception`)
+
+Nominatim gaf een foutstatus of een onleesbaar antwoord.
+
+#### `NominatimClient(user_agent: str, timeout: float = 5.0, api_url: str = 'https://nominatim.openstreetmap.org/search')`
+
+Zoekt de coördinaten van een plaats.
+
+**Argumenten:**
+
+- `user_agent`: Naam en contact van de app (verplicht volgens het beleid).
+- `timeout`: Seconden voordat een verzoek opgeeft.
+- `api_url`: Alleen voor tests.
+
+**Fouten:**
+
+- `ValueError`: Geen User-Agent opgegeven.
+
+##### `NominatimClient.geocode_city(city: str, country_code: Optional[str] = None) -> Optional[Tuple[float, float]]`
+
+Coördinaten van een plaats, of `None` als hij niet gevonden is.
+
+**Argumenten:**
+
+- `city`: Plaatsnaam, bijv. `"Utrecht"`.
+- `country_code`: ISO-landcode om binnen te zoeken, bijv. `"NL"`.
+
+**Fouten:**
+
+- `NominatimError`: Foutstatus of onleesbaar antwoord.
+- `requests.RequestException`: Netwerkfout of time-out.
+
+#### `coarse(latitude: float, longitude: float, decimals: int = 1) -> Tuple[float, float]`
+
+Rond een plek af, zodat er geen precieze locatie bewaard wordt.
+
+**Voorbeeld:**
+
+```python
+>>> coarse(52.0841923, 5.0988034)
+(52.1, 5.1)
+```
 
 ## `mail`
 
@@ -1531,6 +1596,105 @@ Traceback (most recent call last):
 InvalidPasswordError: Wachtwoord moet minimaal 12 tekens lang zijn.
 ```
 
+## `weather`
+
+Het weer: verwachtingen van gratis bronnen.
+
+`metno` vereist de extra `weather` (requests).
+
+### `weather.metno`
+
+Weersverwachting van het Noorse meteorologisch instituut (MET Norway).
+
+De API (api.met.no, Locationforecast 2.0) is gratis, wereldwijd en ook voor
+commercieel gebruik toegestaan, onder twee voorwaarden:
+
+- elk verzoek heeft een eigen, herkenbare User-Agent met contactgegevens
+  van de app (bijv. `"MijnApp/1.0 https://mijnapp.nl/contact"`);
+- bewaar antwoorden tot hun `Expires`-tijd en vraag niet vaker; rond
+  coördinaten af (hooguit 4 decimalen, liever minder), zodat buren dezelfde
+  cache delen.
+
+Vermeld de bron: "Weergegevens: MET Norway" (licentie CC BY 4.0).
+
+#### `MetNoError` (uitzondering, subklasse van `Exception`)
+
+De weer-API gaf een foutstatus of een onleesbaar antwoord.
+
+#### `ForecastPoint(time: datetime, temperature: Optional[float], wind_speed: Optional[float], precipitation: Optional[float], symbol: Optional[str])`
+
+Het weer op één moment.
+
+**Velden:**
+
+- `time`: Tijdstip (UTC).
+- `temperature`: Luchttemperatuur in °C.
+- `wind_speed`: Wind in m/s.
+- `precipitation`: Neerslag in mm in het uur erna (`None` als onbekend).
+- `symbol`: Weersymbool van MET Norway, bijv. `"rain"` of `"clearsky_night"`.
+
+#### `Forecast(points: List[ForecastPoint], expires: Optional[datetime], raw: dict)`
+
+Een verwachting met de tijd tot wanneer hij geldig is.
+
+**Velden:**
+
+- `points`: Weer per tijdstip, oplopend.
+- `expires`: Niet opnieuw vragen vóór dit moment (UTC); `None` als onbekend.
+- `raw`: Het ruwe antwoord, om te bewaren en later met `parse_timeseries` opnieuw te lezen.
+
+#### `MetNoClient(user_agent: str, timeout: float = 4.0, api_url: str = 'https://api.met.no/weatherapi/locationforecast/2.0/compact')`
+
+Haalt verwachtingen op bij api.met.no.
+
+**Argumenten:**
+
+- `user_agent`: Naam en contact van de app (verplicht volgens de voorwaarden).
+- `timeout`: Seconden voordat een verzoek opgeeft; houd dit kort, het weer is meestal een extraatje.
+- `api_url`: Alleen voor tests.
+
+**Fouten:**
+
+- `ValueError`: Geen User-Agent opgegeven.
+
+##### `MetNoClient.forecast(latitude: float, longitude: float) -> Forecast`
+
+De verwachting voor een plek (afgerond op 4 decimalen).
+
+**Fouten:**
+
+- `MetNoError`: Foutstatus of onleesbaar antwoord.
+- `requests.RequestException`: Netwerkfout of time-out.
+
+#### `parse_timeseries(data: Mapping[str, Any]) -> List[ForecastPoint]`
+
+Lees de tijdreeks uit een antwoord van Locationforecast.
+
+**Voorbeeld:**
+
+```python
+>>> parse_timeseries({"properties": {"timeseries": [{"time": "2026-11-14T18:00:00Z", "data": {
+...     "instant": {"details": {"air_temperature": 3.4, "wind_speed": 2.8}},
+...     "next_1_hours": {"summary": {"symbol_code": "rain"}, "details": {"precipitation_amount": 1.2}}}}]}})
+... # doctest: +NORMALIZE_WHITESPACE
+[ForecastPoint(time=datetime.datetime(2026, 11, 14, 18, 0, tzinfo=datetime.timezone.utc),
+               temperature=3.4, wind_speed=2.8, precipitation=1.2, symbol='rain')]
+```
+
+#### `point_at(points: Sequence[ForecastPoint], moment: datetime) -> Optional[ForecastPoint]`
+
+Het tijdstip in de verwachting dat het dichtst bij `moment` ligt.
+
+**Voorbeeld:**
+
+```python
+>>> from datetime import timedelta
+>>> start = datetime(2026, 11, 14, 18, tzinfo=timezone.utc)
+>>> pts = [ForecastPoint(start + timedelta(hours=h), h, None, None, None) for h in range(4)]
+>>> point_at(pts, start + timedelta(hours=2, minutes=20)).temperature
+2
+```
+
 ## `web`
 
 Flask-hulpmiddelen: CSRF-bescherming en een veilige foutpagina.
@@ -1858,4 +2022,66 @@ Het moment in UTC, met tijdzone.
 ```python
 >>> parse_local_datetime("2026-11-14T20:00")
 datetime.datetime(2026, 11, 14, 19, 0, tzinfo=datetime.timezone.utc)
+```
+
+### `seasons`
+
+Jaargetijden: welk seizoen het is op een datum, ook op het zuidelijk halfrond.
+
+Gebruikt de meteorologische indeling (hele maanden): op het noordelijk
+halfrond is december t/m februari winter, maart t/m mei lente, juni t/m
+augustus zomer en september t/m november herfst. Op het zuidelijk halfrond
+is het andersom.
+
+#### `WINTER`
+
+Constante, waarde: `'winter'`
+
+#### `SPRING`
+
+Constante, waarde: `'spring'`
+
+#### `SUMMER`
+
+Constante, waarde: `'summer'`
+
+#### `AUTUMN`
+
+Constante, waarde: `'autumn'`
+
+#### `SOUTHERN_COUNTRIES`
+
+Constante, waarde: `{'AR', 'AU', 'BO', 'BW', 'CL', 'FJ', 'LS', 'MG', 'MU', 'MW', 'MZ', 'NA', 'NZ', 'PE', 'PY', 'SZ', 'TO', 'UY', 'WS', 'ZA', 'ZM', 'ZW'}`
+
+#### `season_on(day: date, southern: bool = False) -> str`
+
+Het meteorologische seizoen op een datum.
+
+**Argumenten:**
+
+- `day`: De datum.
+- `southern`: `True` voor het zuidelijk halfrond.
+
+**Geeft terug:**
+
+`"winter"`, `"spring"`, `"summer"` of `"autumn"`.
+
+**Voorbeeld:**
+
+```python
+>>> season_on(date(2026, 11, 14))
+'autumn'
+>>> season_on(date(2026, 1, 10), southern=True)
+'summer'
+```
+
+#### `is_southern(country_code: Optional[str]) -> bool`
+
+`True` als het land op het zuidelijk halfrond ligt. Onbekend is noordelijk.
+
+**Voorbeeld:**
+
+```python
+>>> is_southern("au"), is_southern("NL"), is_southern(None)
+(True, False, False)
 ```

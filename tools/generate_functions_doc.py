@@ -62,11 +62,12 @@ general-standard-functions[web,postgres,storage,billing] @ git+https://github.co
 
 | Extra | Nodig voor | Installeert |
 |---|---|---|
-| *(geen)* | `validation`, `localtime`, `security`, `mail`, `billing.catalog`, `billing.subscriptions` | itsdangerous, tzdata |
+| *(geen)* | `validation`, `localtime`, `seasons`, `security`, `mail`, `billing.catalog`, `billing.subscriptions` | itsdangerous, tzdata |
 | `web` | `web.csrf`, `web.errors` | Flask |
 | `postgres` | `db.migrations` (standaard-driver) | psycopg2-binary |
 | `storage` | `storage.supabase` | requests |
 | `billing` | `billing.stripe` (`billing.catalog` en `billing.subscriptions` hebben niets nodig) | requests |
+| `weather` | `weather.metno`, `geo.nominatim` | requests |
 
 Tijdens het ontwikkelen aan dit pakket naast een app:
 `pip install -e "../GeneralStandardFunctions[all]"`.
